@@ -36,7 +36,8 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Evaluation')
 parser.add_argument('--trained_model',
-                    default='weights/ssd300_mAP_77.43_v2.pth', type=str,
+                    # default='weights/ssd300_mAP_77.43_v2.pth', type=str,
+                    default='weights/VOC.pth', type=str,
                     help='Trained state_dict file path to open')
 parser.add_argument('--save_folder', default='eval/', type=str,
                     help='File path to save results')
@@ -68,8 +69,8 @@ else:
 
 annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
 imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
-imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets',
-                          'Main', '{:s}.txt')
+imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets','Main') + '/' +  '{:s}.txt'
+
 YEAR = '2007'
 devkit_path = args.voc_root + 'VOC' + YEAR
 dataset_mean = (104, 117, 123)
@@ -363,6 +364,7 @@ cachedir: Directory for caching the annotations
 
 def test_net(save_folder, net, cuda, dataset, transform, top_k,
              im_size=300, thresh=0.05):
+
     num_images = len(dataset)
     # all detections are collected into:
     #    all_boxes[cls][image] = N x 5 array of detections in
@@ -374,7 +376,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     _t = {'im_detect': Timer(), 'misc': Timer()}
     output_dir = get_output_dir('ssd300_120000', set_type)
     det_file = os.path.join(output_dir, 'detections.pkl')
-
+    
     for i in range(num_images):
         im, gt, h, w = dataset.pull_item(i)
 
@@ -409,6 +411,9 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     with open(det_file, 'wb') as f:
         pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)
 
+    # with open(det_file,'rb') as f:
+    #     all_boxes = pickle.load(f)
+    
     print('Evaluating detections')
     evaluate_detections(all_boxes, output_dir, dataset)
 

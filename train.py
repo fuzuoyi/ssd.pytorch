@@ -1,19 +1,27 @@
-from data import *
-from utils.augmentations import SSDAugmentation
-from layers.modules import MultiBoxLoss
-from ssd import build_ssd
+import argparse
 import os
 import sys
 import time
-import torch
-from torch.autograd import Variable
-import torch.nn as nn
-import torch.optim as optim
-import torch.backends.cudnn as cudnn
-import torch.nn.init as init
-import torch.utils.data as data
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 import numpy as np
-import argparse
+import torch
+import torch.backends.cudnn as cudnn
+import torch.nn as nn
+import torch.nn.init as init
+import torch.optim as optim
+import torch.utils.data as data
+from torch.autograd import Variable
+
+from data import *
+from layers.modules import MultiBoxLoss
+from ssd import build_ssd
+from utils.augmentations import SSDAugmentation
+
+# torch.set_num_threads(1)
+
 
 
 def str2bool(v):
@@ -35,7 +43,7 @@ parser.add_argument('--resume', default=None, type=str,
                     help='Checkpoint state_dict file to resume training from')
 parser.add_argument('--start_iter', default=0, type=int,
                     help='Resume training at this iter')
-parser.add_argument('--num_workers', default=4, type=int,
+parser.add_argument('--num_workers', default=12, type=int,
                     help='Number of workers used in dataloading')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use CUDA to train model')
@@ -148,6 +156,7 @@ def train():
                                   pin_memory=True)
     # create batch iterator
     batch_iterator = iter(data_loader)
+    t_start = time.time()
     for iteration in range(args.start_iter, cfg['max_iter']):
         if args.visdom and iteration != 0 and (iteration % epoch_size == 0):
             update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, None,
@@ -160,16 +169,21 @@ def train():
         if iteration in cfg['lr_steps']:
             step_index += 1
             adjust_learning_rate(optimizer, args.gamma, step_index)
-
         # load train data
-        images, targets = next(batch_iterator)
+        try:
+            images, targets = next(batch_iterator)
+        except StopIteration:
+            batch_iterator = iter(data_loader)
+            images, targets = next(batch_iterator)
 
         if args.cuda:
             images = Variable(images.cuda())
-            targets = [Variable(ann.cuda(), volatile=True) for ann in targets]
+            with torch.no_grad():
+                targets = [Variable(ann.cuda()) for ann in targets]
         else:
             images = Variable(images)
-            targets = [Variable(ann, volatile=True) for ann in targets]
+            with torch.no_grad():
+                targets = [Variable(ann) for ann in targets]
         # forward
         t0 = time.time()
         out = net(images)
@@ -180,15 +194,20 @@ def train():
         loss.backward()
         optimizer.step()
         t1 = time.time()
-        loc_loss += loss_l.data[0]
-        conf_loss += loss_c.data[0]
+        loc_loss += loss_l.item()
+        conf_loss += loss_c.item()
 
-        if iteration % 10 == 0:
+        if iteration % 20 == 0:
+            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
             print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data[0]), end=' ')
+
+        if iteration % 100 == 0:
+            t_dura = time.time() - t_start
+            print('train speed: %.4f imgs/sec.' % (100 * args.batch_size / t_dura))
+            t_start = time.time()
 
         if args.visdom:
-            update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
+            update_vis_plot(iteration, loss_l.item(), loss_c.item(),
                             iter_plot, epoch_plot, 'append')
 
         if iteration != 0 and iteration % 5000 == 0:
@@ -211,7 +230,7 @@ def adjust_learning_rate(optimizer, gamma, step):
 
 
 def xavier(param):
-    init.xavier_uniform(param)
+    init.xavier_uniform_(param)
 
 
 def weights_init(m):
